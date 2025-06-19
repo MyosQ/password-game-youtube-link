@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 API_KEY = os.environ["API_KEY"]
 
+# Cache?
 def search_videos(query: str) -> list:
     """Search for YouTube videos based on a query.
     :param query: Search query string.
@@ -28,6 +29,7 @@ def search_videos(query: str) -> list:
         "type": "video",
         "maxResults": yt_max_results,
         "key": API_KEY,
+        "fields": "items(id/videoId),nextPageToken",
     }
     video_ids = []
     page_token = None
@@ -54,6 +56,7 @@ def search_videos(query: str) -> list:
 
     return video_ids
 
+# Cache?
 def get_video_durations(video_ids: list) -> dict:
     """Get durations of a list of YouTube videos.
     :param video_ids: List of YouTube video IDs.
@@ -91,13 +94,30 @@ def filter_videos_by_duration(durations: dict, target_duration: timedelta) -> di
     filtered_videos = {vid_id: dur for vid_id, dur in durations.items() if dur == target_duration}
     return filtered_videos
 
-def get_best_video(durations: dict, target_duration: timedelta) -> tuple[str, str]:
+def get_best_video(durations: dict):
     """Find the best video id that match the target duration.
     :param durations: Dictionary of video IDs and their durations.
-    :param target_duration: Target duration as a timedelta object.
     :return: Tuple of video ID and information string.
     """
-    return ("asd", "asd")
+    def num_upper_case(s: str) -> int:
+        return sum(c.isupper() for c in s)
+
+    def num_digits(s: str) -> int:
+        return sum(c.isdigit() for c in s)
+
+    # Order by num upper case, then by num digits, ascending
+    # Use video ids, ie key
+    sorted_videos = sorted(
+        durations.keys(),
+        key=lambda vid_id: (
+            num_upper_case(vid_id),
+            num_digits(vid_id),
+            durations[vid_id]
+        )
+    )
+    print(f"Sorted videos: {sorted_videos}")
+    return
+
 
 def main(minutes: int, seconds: int):
     """
@@ -124,7 +144,7 @@ def main(minutes: int, seconds: int):
     print("Filtered videos:", filtered_videos)
 
     # 4. Get the video with the "best" video id
-    ...
+    get_best_video(filtered_videos)
 
 if __name__ == "__main__":
     minutes = 20
