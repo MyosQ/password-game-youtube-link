@@ -6,22 +6,42 @@ from datetime import timedelta
 import isodate
 import logging
 import http
+import pickle
+import threading
+import argparse
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 API_KEY = os.environ["API_KEY"]
 
-# Cache?
+CACHE_FILE = "search_cache.pkl"
+_search_cache = {}
+_search_cache_lock = threading.Lock()
+
+# Load cache at startup
+if os.path.exists(CACHE_FILE):
+    with open(CACHE_FILE, "rb") as f:
+        _search_cache = pickle.load(f)
+
+def save_cache():
+    with open(CACHE_FILE, "wb") as f:
+        pickle.dump(_search_cache, f)
+
 def search_videos(query: str) -> list:
     """Search for YouTube videos based on a query.
     :param query: Search query string.
     :param max_total: Maximum number of video IDs to return.
     :return: List of video IDs.
     """
+    with _search_cache_lock:
+        if query in _search_cache:
+            logger.info(f"Cache hit for query: \"{query}\"")
+            return _search_cache[query]
     search_url = "https://www.googleapis.com/youtube/v3/search"
-    max_total = 100  # Maximum total results to return
+    max_total = 50  # Maximum total results to return
     yt_max_results = 50  # YouTube API max results per request
     search_params = {
         "part": "snippet",
@@ -54,9 +74,13 @@ def search_videos(query: str) -> list:
         if not page_token:
             break
 
+    with _search_cache_lock:
+        _search_cache[query] = video_ids
+        save_cache()
+        logger.info(f"Cached {len(video_ids)} video IDs for query: \"{query}\"")
+
     return video_ids
 
-# Cache?
 def get_video_durations(video_ids: list) -> dict:
     """Get durations of a list of YouTube videos.
     :param video_ids: List of YouTube video IDs.
@@ -64,12 +88,14 @@ def get_video_durations(video_ids: list) -> dict:
     {
         "video_id_1": timedelta(seconds=300),
         "video_id_2": timedelta(seconds=600),
+        ...
     """
     details_url = "https://www.googleapis.com/youtube/v3/videos"
     details_params = {
         "part": "contentDetails",
         "id": ",".join(video_ids),
-        "key": API_KEY
+        "key": API_KEY,
+        "fields": "items(id,contentDetails(duration))",
     }
     response = requests.get(details_url, params=details_params)
     if response.status_code != http.HTTPStatus.OK:
@@ -94,7 +120,7 @@ def filter_videos_by_duration(durations: dict, target_duration: timedelta) -> di
     filtered_videos = {vid_id: dur for vid_id, dur in durations.items() if dur == target_duration}
     return filtered_videos
 
-def get_best_video(durations: dict):
+def sort_videos(durations: dict) -> list:
     """Find the best video id that match the target duration.
     :param durations: Dictionary of video IDs and their durations.
     :return: Tuple of video ID and information string.
@@ -106,7 +132,6 @@ def get_best_video(durations: dict):
         return sum(c.isdigit() for c in s)
 
     # Order by num upper case, then by num digits, ascending
-    # Use video ids, ie key
     sorted_videos = sorted(
         durations.keys(),
         key=lambda vid_id: (
@@ -115,9 +140,30 @@ def get_best_video(durations: dict):
             durations[vid_id]
         )
     )
-    print(f"Sorted videos: {sorted_videos}")
-    return
+    return sorted_videos
 
+def bold(text: any) -> str:
+    """Return text formatted in bold."""
+    return f"\033[1m{text}\033[0m"
+
+def green(text: str) -> str:
+    """Return text formatted in green."""
+    return f"\033[32m{str(text)}\033[0m"
+
+def indent(text: str, tabs: int = 1) -> str:
+    """Indent text with a specified number of tabs."""
+    return "\t" * tabs + text
+
+def print_results(video_ids: list):
+    """Print the results in a formatted way."""
+    if not video_ids:
+        print("No videos found :( 🌓🥚🐛")
+        return
+
+    print("\n" + indent(bold("Sorted video ids:")))
+    for video_id in video_ids:
+        print(f"{indent(green(video_id))}")
+    print()
 
 def main(minutes: int, seconds: int):
     """
@@ -125,28 +171,31 @@ def main(minutes: int, seconds: int):
 
     :param minutes: Number of minutes to search for.
     :param seconds: Number of seconds to search for.
-    :param max_results: Maximum number of results to return.
     """
 
     # 1. Search for videos
     search_query = f"{minutes} minutes {seconds} seconds"
     video_ids = search_videos(search_query)
-    print(f"Found {len(video_ids)} videos for query: {search_query}")
+    logger.info(f"Found {bold(len(video_ids))} videos for query: \"{search_query}\"")
 
     # 2. Get video durations
     durations = get_video_durations(video_ids)
-    print(f"Retrieved durations for {len(durations)} videos.")
+    logger.info(f"Retrieved durations for {bold(len(durations))} videos.")
 
     # 3. Filter videos by duration to match target duration
     target_duration = timedelta(minutes=minutes, seconds=seconds)
     filtered_videos = filter_videos_by_duration(durations, target_duration)
-    print(f"Filtered {len(filtered_videos)} videos matching target duration: {target_duration}")
-    print("Filtered videos:", filtered_videos)
+    logger.info(f"Found {bold(len(filtered_videos))} videos matching target duration: {target_duration}")
 
-    # 4. Get the video with the "best" video id
-    get_best_video(filtered_videos)
+    # 4. Sort and print videos by ID characteristics
+    sorted_videos = sort_videos(filtered_videos)
+    logger.info(f"Sorted {bold(len(filtered_videos))} videos by ID characteristics.")
+    print_results(sorted_videos)
 
 if __name__ == "__main__":
-    minutes = 20
-    seconds = 22
-    main(minutes, seconds)
+    parser = argparse.ArgumentParser(description="Search YouTube videos by duration.")
+    parser.add_argument("--minutes", type=int, default=20, help="Number of minutes")
+    parser.add_argument("--seconds", type=int, default=23, help="Number of seconds")
+    args = parser.parse_args()
+
+    main(args.minutes, args.seconds)
