@@ -6,8 +6,6 @@ from datetime import timedelta
 import isodate
 import logging
 import http
-import pickle
-import threading
 import argparse
 
 from utils.formatting import bold, green, indent
@@ -20,35 +18,45 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 API_KEY: str = os.environ["API_KEY"]
 YT_MAX_RES_PER_REQUEST: int = 50  # YouTube API max results per request
 
-CACHE_FILE = "search_cache.pkl"
-_search_cache = {}
-_search_cache_lock = threading.Lock()
+def get_video_duration_category(duration: timedelta) -> str:
+    """Get the category of video duration.
+    :param duration: Duration as a timedelta object.
+    :return: Category string.
+    """
+    if not isinstance(duration, timedelta):
+        raise ValueError("Duration must be a timedelta object.")
+    elif duration < timedelta(minutes=4):
+        return "short"
+    elif duration < timedelta(minutes=20):
+        return "medium"
+    else:
+        return "long"
 
-# Load cache at startup
-if os.path.exists(CACHE_FILE):
-    with open(CACHE_FILE, "rb") as f:
-        _search_cache = pickle.load(f)
+def get_yt_search_query(duration: timedelta) -> str:
+    """Get the YouTube search query based on the duration.
+    :param duration: Duration as a timedelta object.
+    :return: Search query string.
+    """
+    if not isinstance(duration, timedelta):
+        raise ValueError("Duration must be a timedelta object.")
 
-def save_cache():
-    with open(CACHE_FILE, "wb") as f:
-        pickle.dump(_search_cache, f)
+    minutes: int = duration.seconds // 60
+    seconds: int = duration.seconds % 60
+    return f"{minutes} minutes {seconds} seconds"
 
-def search_videos(query: str) -> list:
+def search_videos_by_length(duration: timedelta) -> list:
     """Search for YouTube videos based on a query.
-    :param query: Search query string.
-    :param max_total: Maximum number of video IDs to return.
+    :param duration: Duration as a timedelta object.
     :return: List of video IDs.
     """
-    # with _search_cache_lock:
-    #     if query in _search_cache:
-    #         logger.info(f"Cache hit for query: \"{query}\"")
-    #         return _search_cache[query]
+    query = get_yt_search_query(duration)
     search_url = "https://www.googleapis.com/youtube/v3/search"
-    max_total = 2000  # Maximum total results to return
+    max_total = 30  # Maximum total results to return
     search_params = {
         "part": "snippet",
         "q": query,
         "type": "video",
+        "videoDuration": get_video_duration_category(duration),
         "key": API_KEY,
         "fields": "items(id/videoId),nextPageToken",
     }
@@ -77,11 +85,6 @@ def search_videos(query: str) -> list:
         # Check if we have reached the maximum number of results
         if not page_token:
             break
-
-    with _search_cache_lock:
-        _search_cache[query] = video_ids
-        save_cache()
-        logger.info(f"Cached {len(video_ids)} video IDs for query: \"{query}\"")
 
     return video_ids
 
@@ -150,7 +153,9 @@ def sort_videos(durations: dict) -> list:
     return sorted_videos
 
 def print_results(video_ids: list):
-    """Print the results in a formatted way."""
+    """Print the results in a formatted way.
+    :param video_ids: List of video IDs.
+    """
     if not video_ids:
         print("No videos found :( 🌓🥚🐛")
         return
@@ -169,9 +174,9 @@ def main(minutes: int, seconds: int):
     """
 
     # 1. Search for videos
-    search_query = f"{minutes} minutes {seconds} seconds"
-    video_ids = search_videos(search_query)
-    logger.info(f"Found {bold(len(video_ids))} videos for query: \"{search_query}\"")
+    duration = timedelta(minutes=minutes, seconds=seconds)
+    video_ids = search_videos_by_length(duration)
+    logger.info(f"Got {bold(len(video_ids))} videos from search")
 
     # 2. Get video durations
     durations = get_video_durations(video_ids)
