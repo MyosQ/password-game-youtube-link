@@ -10,6 +10,8 @@ import pickle
 import threading
 import argparse
 
+from utils.formatting import bold, green, indent
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -141,18 +143,6 @@ def sort_videos(durations: dict) -> list:
         )
     )
     return sorted_videos
-
-def bold(text: any) -> str:
-    """Return text formatted in bold."""
-    return f"\033[1m{text}\033[0m"
-
-def green(text: str) -> str:
-    """Return text formatted in green."""
-    return f"\033[32m{str(text)}\033[0m"
-
-def indent(text: str, tabs: int = 1) -> str:
-    """Indent text with a specified number of tabs."""
-    return "\t" * tabs + text
 
 def print_results(video_ids: list):
     """Print the results in a formatted way."""
