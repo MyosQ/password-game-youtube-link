@@ -17,7 +17,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-API_KEY = os.environ["API_KEY"]
+API_KEY: str = os.environ["API_KEY"]
+YT_MAX_RES_PER_REQUEST: int = 50  # YouTube API max results per request
 
 CACHE_FILE = "search_cache.pkl"
 _search_cache = {}
@@ -38,18 +39,16 @@ def search_videos(query: str) -> list:
     :param max_total: Maximum number of video IDs to return.
     :return: List of video IDs.
     """
-    with _search_cache_lock:
-        if query in _search_cache:
-            logger.info(f"Cache hit for query: \"{query}\"")
-            return _search_cache[query]
+    # with _search_cache_lock:
+    #     if query in _search_cache:
+    #         logger.info(f"Cache hit for query: \"{query}\"")
+    #         return _search_cache[query]
     search_url = "https://www.googleapis.com/youtube/v3/search"
-    max_total = 50  # Maximum total results to return
-    yt_max_results = 50  # YouTube API max results per request
+    max_total = 2000  # Maximum total results to return
     search_params = {
         "part": "snippet",
         "q": query,
         "type": "video",
-        "maxResults": yt_max_results,
         "key": API_KEY,
         "fields": "items(id/videoId),nextPageToken",
     }
@@ -57,6 +56,9 @@ def search_videos(query: str) -> list:
     page_token = None
 
     while len(video_ids) < max_total:
+        # Limit the number of results per request
+        search_params["maxResults"] = str(min(YT_MAX_RES_PER_REQUEST, max_total - len(video_ids)))
+
         # Add page token if available
         if page_token:
             search_params["pageToken"] = page_token
@@ -93,23 +95,26 @@ def get_video_durations(video_ids: list) -> dict:
         ...
     """
     details_url = "https://www.googleapis.com/youtube/v3/videos"
-    details_params = {
-        "part": "contentDetails",
-        "id": ",".join(video_ids),
-        "key": API_KEY,
-        "fields": "items(id,contentDetails(duration))",
-    }
-    response = requests.get(details_url, params=details_params)
-    if response.status_code != http.HTTPStatus.OK:
-        logger.error(f"Error fetching video details: {response.status_code} - {response.text}")
-        sys.exit(1)
-
     durations = {}
-    for item in response.json().get("items", []):
-        vid_id = item["id"]
-        iso_duration = item["contentDetails"]["duration"]
-        duration = isodate.parse_duration(iso_duration)
-        durations[vid_id] = duration
+
+    for i in range(0, len(video_ids), YT_MAX_RES_PER_REQUEST):
+        chunk = video_ids[i:i + YT_MAX_RES_PER_REQUEST]
+        details_params = {
+            "part": "contentDetails",
+            "id": ",".join(chunk),
+            "key": API_KEY,
+            "fields": "items(id,contentDetails(duration))",
+        }
+        response = requests.get(details_url, params=details_params)
+        if response.status_code != http.HTTPStatus.OK:
+            logger.error(f"Error fetching video details: {response.status_code} - {response.text}")
+            sys.exit(1)
+
+        for item in response.json().get("items", []):
+            vid_id = item["id"]
+            iso_duration = item["contentDetails"]["duration"]
+            duration = isodate.parse_duration(iso_duration)
+            durations[vid_id] = duration
 
     return durations
 
