@@ -6,9 +6,21 @@
     document.querySelector(".captcha-wrapper .captcha-refresh").click();
     console.log(`Click!`);
   };
-  const append_to_pwd = (text) => {
+  const append_to_pwd = (html) => {
     const pw = document.querySelector('.password-box [contenteditable="true"]');
-    pw.appendChild(document.createTextNode(text));
+    pw.insertAdjacentHTML('beforeend', html);
+  };
+  const format_bold_italic = (txt) => {
+    let result = "";
+    const vowels = /[aeiouyAEIOUY]/;
+    for (const char of txt) {
+      if (vowels.test(char)) {
+        result += `<strong>${char}</strong>`;
+      } else {
+        result += `<em>${char}</em>`;
+      }
+    }
+    return result;
   };
   let captcha = get_captcha();
   while (/\d/.test(captcha)) {
@@ -17,5 +29,5 @@
     captcha = get_captcha();
   }
   console.log("🎯 Captcha has no digits!: " + captcha);
-  append_to_pwd(captcha);
+  append_to_pwd(format_bold_italic(captcha));
 })();
