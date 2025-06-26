@@ -42,7 +42,7 @@ def get_yt_search_query(duration: timedelta) -> str:
 
     minutes: int = duration.seconds // 60
     seconds: int = duration.seconds % 60
-    return f"{minutes} minutes {seconds} seconds"
+    return f"{minutes} minutes {seconds} seconds {minutes}:{seconds}"
 
 def search_videos_by_length(duration: timedelta) -> list:
     """Search for YouTube videos based on a query.
@@ -51,7 +51,7 @@ def search_videos_by_length(duration: timedelta) -> list:
     """
     query = get_yt_search_query(duration)
     search_url = "https://www.googleapis.com/youtube/v3/search"
-    max_total = 30  # Maximum total results to return
+    max_total = 1000  # Maximum total results to return
     search_params = {
         "part": "snippet",
         "q": query,
@@ -115,9 +115,13 @@ def get_video_durations(video_ids: list) -> dict:
 
         for item in response.json().get("items", []):
             vid_id = item["id"]
-            iso_duration = item["contentDetails"]["duration"]
-            duration = isodate.parse_duration(iso_duration)
-            durations[vid_id] = duration
+            try:
+                iso_duration = item["contentDetails"]["duration"]
+                duration = isodate.parse_duration(iso_duration)
+                durations[vid_id] = duration
+            except KeyError:
+                logger.warning(f"Video ID {vid_id} does not have duration information.")
+                durations[vid_id] = timedelta(seconds=0)  # Default to 0 seconds if no duration found
 
     return durations
 
